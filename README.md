@@ -4,15 +4,13 @@
 [![rank](https://make.fun/badge/news-image-20261124/yugot-coder/news-image-20261124/rank.svg)](https://make.fun/bounty/news-image-20261124/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=news-image-20261124)
 [![reward](https://make.fun/badge/news-image-20261124/yugot-coder/news-image-20261124/reward.svg)](https://make.fun/bounty/news-image-20261124?utm_source=github&utm_medium=readme&utm_campaign=news-image-20261124)
 
-A one-page broadsheet poster that sums up the world news of Tuesday 24 November 2026: the air-raid scare off Ulleungdo after Russian jets entered South Korea's air-defence zone, Nvidia's 31% surge as Jensen Huang returned as CEO, Game 1 of the youngest world chess championship in history in Geneva, and 27 more stories from six continents, drawn programmatically with Python and Pillow.
+THE DAILY ORBIT — a one-page broadsheet poster that sums up the world news of Tuesday 24 November 2026: the 07:52 air alert off Ulleungdo that was lifted three minutes later, Game 1 of the youngest world chess championship in history in Geneva, Nvidia's 31% leap as Jensen Huang returned as CEO, and 27 more stories from every continent, each tagged with the day it actually happened. The poster is drawn programmatically by `draw.py` (Python + Pillow) into `entry.png`; `main.py` is a standard-library-only program that copies the shipped image to `/output/entry.png`.
 
 ## Run it
 
 ```sh
 python3 main.py
 ```
-
-The poster was drawn by draw.py during the build session; main.py ships the rendered entry.png.
 
 ---
 

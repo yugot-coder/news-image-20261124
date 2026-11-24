@@ -1,40 +1,59 @@
 #!/usr/bin/env python3
-"""Render the 24 November 2026 news poster (1024x1024 PNG).
+"""THE DAILY ORBIT - poster renderer for Tuesday 24 November 2026.
 
-Written from scratch for the news-image-20261124 edition. All facts come
-from NEWS-RESEARCH-20261124.md. Pillow is only needed here; the shipped
-main.py is pure stdlib and just copies the rendered entry.png.
+Draws a one-page broadsheet (1024x1024) that sums up the day's world
+news: a masthead, a strip of the day's key numbers, three hero stories,
+a 27-card grid of the remaining stories, a schematic dot-matrix world
+map with pins, and a DATE CHECK box explaining the date discipline.
+
+Rendering is fully deterministic: fixed geometry, fixed fonts, no
+randomness, no timestamps. Two runs produce byte-identical entry.png.
 """
+
 import os
+
 from PIL import Image, ImageDraw, ImageFont
 
+# ---------------------------------------------------------------- canvas
 W = H = 1024
-HERE = os.path.dirname(os.path.abspath(__file__))
+PAPER = (246, 240, 226)
+CARD_BG = (255, 252, 244)
+INK = (26, 22, 16)
+FAINT = (96, 88, 74)
+RULE = (60, 52, 40)
+RED = (163, 22, 33)
+NAVY = (23, 58, 94)
+GOLD = (166, 124, 22)
+BAND_DARK = (30, 27, 22)
+TAG_TUE = (163, 22, 33)
+TAG_CTX = (110, 100, 84)
 
-PAPER = (247, 242, 232)
-INK = (20, 24, 31)
-INK_SOFT = (74, 80, 92)
-RED = (178, 39, 30)
-BLUE = (29, 78, 137)
-GOLD = (176, 124, 24)
-CARD = (255, 253, 247)
-LINE = (196, 186, 168)
+FONT_DIR = "/usr/share/fonts/truetype/dejavu"
+SERIF_B = os.path.join(FONT_DIR, "DejaVuSerif-Bold.ttf")
+SERIF = os.path.join(FONT_DIR, "DejaVuSerif.ttf")
+SANS = os.path.join(FONT_DIR, "DejaVuSans.ttf")
+SANS_B = os.path.join(FONT_DIR, "DejaVuSans-Bold.ttf")
 
-SERIF = "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf"
-SANS = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
-SANS_B = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+_cache = {}
 
 
-def font(path, size):
-    return ImageFont.truetype(path, size)
+def fnt(path, size):
+    key = (path, size)
+    if key not in _cache:
+        _cache[key] = ImageFont.truetype(path, size)
+    return _cache[key]
 
 
-def wrap(draw, text, fnt, max_w):
-    """Greedy word wrap returning a list of lines that fit max_w."""
+def text_w(dr, s, font):
+    return dr.textlength(s, font=font)
+
+
+def wrap(dr, s, font, width):
+    """Greedy word wrap; returns a list of lines that fit `width`."""
     lines, cur = [], ""
-    for word in text.split():
+    for word in s.split():
         trial = word if not cur else cur + " " + word
-        if draw.textlength(trial, font=fnt) <= max_w:
+        if text_w(dr, trial, font) <= width:
             cur = trial
         else:
             if cur:
@@ -45,270 +64,279 @@ def wrap(draw, text, fnt, max_w):
     return lines
 
 
-def para(draw, xy, text, fnt, color, max_w, leading):
-    """Draw wrapped paragraph, return y just below the last line."""
-    x, y = xy
-    for line in wrap(draw, text, fnt, max_w):
-        draw.text((x, y), line, font=fnt, fill=color)
+def block(dr, x, y, s, font, fill, width, leading, max_lines=None):
+    """Draw wrapped text; returns the y just below the last line."""
+    lines = wrap(dr, s, font, width)
+    if max_lines is not None:
+        lines = lines[:max_lines]
+    for ln in lines:
+        dr.text((x, y), ln, font=font, fill=fill)
         y += leading
     return y
 
 
-def rule(draw, x0, y, x1, color=INK, width=2):
-    draw.line([(x0, y), (x1, y)], fill=color, width=width)
+def centered(dr, cx, y, s, font, fill):
+    dr.text((cx - text_w(dr, s, font) / 2, y), s, font=font, fill=fill)
 
 
-# ---------------------------------------------------------------- data
+# ---------------------------------------------------------------- content
 HEROES = [
     {
-        "kicker": "ULLEUNGDO  •  KOREA",
+        "place": "ULLEUNGDO, SOUTH KOREA",
+        "tag": "TUE",
         "color": RED,
-        "head": "Russian jets trigger an air-raid scare off Ulleungdo",
-        "body": "Seoul orders islanders to shelter at 07:52 on Tuesday "
-                "after aircraft approach Ulleungdo; the warning is "
-                "lifted three minutes later. The military says jets "
-                "entered the air-defence zone — no airspace violation.",
+        "head": "AIR ALERT AT 07:52, LIFTED IN 3 MINUTES",
+        "body": ("Russian military jets entered the KADIZ off Ulleungdo. "
+                 "An evacuation alert went out at 07:52 and was lifted "
+                 "about three minutes later. Seoul's JCS: no airspace "
+                 "violation; ROK fighters scrambled."),
     },
     {
-        "kicker": "WALL STREET  •  MARKETS",
-        "color": BLUE,
-        "head": "Huang is back — Nvidia soars 31% in a day",
-        "body": "Reinstated as CEO 11 days after resigning, Jensen Huang "
-                "sparks the best Wall Street day since April 2025: "
-                "Nasdaq +6.5%, S&P 500 +4.7%, Dow +1,448 points.",
+        "place": "GENEVA, SWITZERLAND",
+        "tag": "TUE",
+        "color": NAVY,
+        "head": "YOUNGEST WORLD CHESS FINAL OPENS",
+        "body": ("Champion Gukesh meets challenger Sindarov - both are "
+                 "20, the youngest title match in history. Game 1 at "
+                 "15:00 CET, Sindarov with White; 14 games, a $2.5M "
+                 "prize fund."),
     },
     {
-        "kicker": "GENEVA  •  CHESS",
+        "place": "WALL STREET",
+        "tag": "MON",
         "color": GOLD,
-        "head": "Game 1: Gukesh defends his crown against Sindarov",
-        "body": "The youngest title match in history opens at 15:00 CET: "
-                "both players are 20, over 14 games for a $2.5M prize "
-                "fund. Sindarov, the challenger, has White.",
+        "head": "HUANG RETURNS - NVIDIA LEAPS 31%",
+        "body": ("Nvidia's board reinstated Jensen Huang as CEO, 11 days "
+                 "after he quit. Shares jumped 31% - $952B added in a "
+                 "day; the Nasdaq rose 6.5%, its best day since "
+                 "April 2025."),
     },
+]
+
+# (place, day tag, headline, one-breath summary)
+CARDS = [
+    ("SERANG", "TUE", "Factory-fire search goes on",
+     "24 dead, ~30 missing after Saturday's Cikande blaze; DNA ID takes 2-3 weeks."),
+    ("POLAND", "MON", "Kh-101s confirmed, AWACS sent",
+     "All 3 objects were Russian missiles; NATO reinforces, no Article 4."),
+    ("CRICKET", "MON", "India-NZ Test ends in a draw",
+     "India's 720/9 declared is a record in NZ; the hosts hold out on day five."),
+    ("COP31", "MON", "Climate talks end in letdown",
+     "Guterres 'deeply disappointed'; focus shifts to COP32 in Addis Ababa."),
+    ("IRAN", "MON", "Singer lashed 74 times",
+     "A singer and four production staff each received 74 lashes."),
+    ("GERMANY", "MON", "Bundeswehr adopts Kyiv's Delta",
+     "Letter of intent: Germany will use Ukraine's battle-management system."),
+    ("TEHRAN", "MON", "Iran vows 'all tools' vs blockade",
+     "Foreign ministry spokesman answers the US naval blockade threat."),
+    ("IOWA", "MON", "Trump halts lead-azide blasts",
+     "Army ordered to pause detonating toxic explosive stockpiles."),
+    ("LIBYA", "SUN", "Ukraine sinks Russian corvette",
+     "Naval drones hit the ship at Benghazi; Zelenskyy confirms the strike."),
+    ("WASHINGTON", "MON", "Trump clears Huang on security",
+     "President assures Nvidia its CEO is no national-security threat."),
+    ("SANCTIONS", "MON", "US hits Iran shadow banking",
+     "Dozens of parties sanctioned over Tehran's covert finance network."),
+    ("MURMANSK", "MON", "Governor held in graft probe",
+     "Regional governor detained on suspicion of embezzlement."),
+    ("GAZA", "MON", "Strike kills UNRWA staffer",
+     "At least three dead in an Israeli strike, incl. a UN agency worker."),
+    ("ORBIT", "TUE", "Nukes in orbit 'within weeks'?",
+     "Western intelligence warns Russia could orbit nuclear weapons soon."),
+    ("ZAMBIA", "TUE", "Opposition chief charged",
+     "Leader accused of plotting to overthrow the government."),
+    ("THE HAGUE", "TUE", "Tajikistan quits the ICC",
+     "Fourth state to leave the court, after a US diplomatic push."),
+    ("DHAKA", "TUE", "Bangladesh vows Hasina arrest",
+     "Government promises to detain the ex-PM on her return from India."),
+    ("DENMARK", "MON", "Court backs 'ghetto law'",
+     "High court upholds the hardline immigration statute."),
+    ("DELHI", "TUE", "Modi opens AI park at IIT Patna",
+     "A 400-crore-rupee research park inaugurated by the prime minister."),
+    ("ARUNACHAL", "TUE", "India-China commanders talk",
+     "Border commanders meet to ease tensions along the frontier."),
+    ("GODHRA", "TUE", "Bail on medical grounds",
+     "Supreme Court grants bail in the Godhra case, citing health."),
+    ("DYMER", "MON", "Rescue search continues",
+     "1-2 dead, 14-15 missing, including two children."),
+    ("BALTIC", "SAT", "Sparta II still ablaze",
+     "Russian cargo ship burns in the Gulf of Finland after drone hits."),
+    ("LISBON", "TUE", "March on parliament",
+     "CGTP unions protest as inflation runs at 3.8%."),
+    ("TONIGHT", "TUE", "Supermoon meets the Pleiades",
+     "The full moon crosses the Seven Sisters in tonight's sky."),
+    ("GAZA REPORT", "TUE", "Oxfam: poisoned for decades",
+     "Air, soil and water contamination documented in a new report."),
+    ("TURIN", "SUN", "Alcaraz takes ATP Finals",
+     "First year-end title for the Spaniard, beating Zverev in the final."),
 ]
 
 STATS = [
-    ("31%", "Nvidia's one-day jump\non Huang's return"),
-    ("$952B", "added in a day —\nbest since 2003"),
-    ("24", "dead confirmed in\nSerang, ~30 missing"),
-    ("3 min", "Ulleungdo air-raid\nwarning lasted"),
-    ("$2.5M", "chess title prize\nfund in Geneva"),
-    ("194", "parties at COP31 —\nno fossil-fuel text"),
+    ("+31%", "NVIDIA IN A DAY"),
+    ("$952B", "VALUE ADDED"),
+    ("24", "DEAD AT SERANG"),
+    ("3 MIN", "THE ALERT STOOD"),
+    ("$2.5M", "CHESS PRIZE FUND"),
+    ("+1,448", "DOW POINTS"),
 ]
 
-# (place, day-tag, headline, subline)
-CARDS = [
-    ("SERANG", "TUE", "Search goes on in Serang on Tuesday",
-     "600 rescuers; DNA takes 2–3 weeks."),
-    ("BRUSSELS", "MON", "NATO sends AWACS to Poland after the missile fall",
-     "All 3 objects confirmed Kh-101."),
-    ("WELLINGTON", "MON", "India–New Zealand Test ends in a draw",
-     "India 720/9 dec; NZ hold on."),
-    ("CLIMATE", "MON", "COP31 flop draws backlash and Pacific despair",
-     "Guterres disappointed; COP32 next."),
-    ("TEHRAN", "MON", "Iran flogs a singer and her team, 74 lashes each",
-     "Sentences reported by Iranian site."),
-    ("BERLIN", "MON", "Germany to use Kyiv's Delta battle tool",
-     "Letter of intent signed with Kyiv."),
-    ("TEHRAN", "MON", "Iran vows 'all tools' against US naval blockade",
-     "Foreign ministry spokesman Baghaei."),
-    ("IOWA", "MON", "Trump halts Army detonation of toxic lead azide",
-     "Orders a pause in Iowa this week."),
-    ("LIBYA", "SUN", "Ukraine sinks a Russian warship in a Libyan port",
-     "Maritime drones; Zelenskyy confirms."),
-    ("WASHINGTON", "MON", "Trump: Huang poses no national security threat",
-     "Assurance given to Nvidia."),
-    ("WASHINGTON", "MON", "US sanctions dozens tied to Iran shadow banking",
-     "New sanctions round on networks."),
-    ("RUSSIA", "MON", "Murmansk governor detained over embezzlement",
-     "Regional governor held by police."),
-    ("GAZA", "MON", "Israeli strikes kill three in Gaza, incl. UNRWA worker",
-     "UNRWA confirms its staffer killed."),
-    ("SPACE", "TUE", "Russia 'could put a nuclear weapon in space in weeks'",
-     "Western intelligence warns."),
-    ("LUSAKA", "TUE", "Zambia opposition leader charged over coup plot",
-     "Charged with seeking to overthrow govt."),
-    ("THE HAGUE", "TUE", "Tajikistan becomes fourth country to quit the ICC",
-     "Follows the US diplomatic push."),
-    ("DHAKA", "TUE", "Bangladesh vows to capture Hasina after India return",
-     "Vow follows her return from India."),
-    ("COPENHAGEN", "MON", "Denmark's top court backs hardline 'ghetto law'",
-     "Immigration law upheld by court."),
-    ("DELHI", "TUE", "Modi opens AI centre at IIT Patna",
-     "Launches Rs 400-crore research park."),
-    ("ARUNACHAL", "TUE", "India, China hold military talks in Arunachal",
-     "Commanders meet to ease tensions."),
-    ("DELHI", "TUE", "Supreme Court grants bail to Godhra convict",
-     "Bail granted on medical grounds."),
-    ("TURIN", "SUN", "Alcaraz wins maiden ATP Finals title",
-     "Beats Zverev in the Turin final."),
-    ("DYMER", "MON", "Dymer rescue continues after drone strike",
-     "1–2 dead, 14–15 missing."),
-    ("BALTIC", "MON", "Sparta II still burning in the Gulf of Finland",
-     "Hit by drones Sat; fire may last days."),
-    ("LISBON", "TUE", "Lisbon demo heads to parliament on Tuesday",
-     "CGTP rally; inflation 3.8%."),
-    ("SCIENCE", "TUE", "Supermoon meets the Seven Sisters tonight",
-     "Supermoon aligns with the Pleiades."),
-    ("GAZA", "TUE", "Oxfam: Gaza's air, soil and water poisoned for decades",
-     "Toxic contamination report out today."),
+# Schematic dot-matrix world: '#' is land. Rough shapes only.
+MAP_ROWS = [
+    "                                                  ",
+    "  #######          ######################         ",
+    " #########        ########################       ",
+    "  ########         ######################         ",
+    "   ######    ##     #################             ",
+    "    ####    ########    ###########    ##         ",
+    "     ##    ##########      #######    ####        ",
+    "          ############       #####   ######       ",
+    "           ##########         ###   ########      ",
+    "            ########           ##    ########     ",
+    "             ######                   ######      ",
+    "              ####                     ####       ",
+    "               ##                                   ",
 ]
-
-# Dot-matrix map: rough continent blobs as ellipses in map coords.
-# Map inner area in pixels: 584 wide x 96 tall (dots step 12).
-BLOBS = [
-    # (cx, cy, rx, ry) in 0..584 x 0..96 map space
-    (70, 52, 62, 36),    # North America
-    (128, 84, 32, 14),   # Central America
-    (182, 70, 24, 24),   # South America
-    (298, 34, 32, 22),   # Europe
-    (318, 66, 40, 28),   # Africa
-    (428, 40, 88, 30),   # Asia
-    (516, 86, 28, 12),   # Oceania
-]
-# (label, px, py, label_dx, label_dy) — label offset keeps text in-bounds
-PINS = [
-    ("Helsinki", 312, 12, 8, -6),
-    ("Brussels", 292, 28, -64, 10),
-    ("Dymer", 316, 30, 8, -6),
-    ("Geneva", 296, 44, -58, 12),
-    ("Gaza", 352, 58, 8, -6),
-    ("Lusaka", 330, 80, 8, -6),
-    ("Delhi", 442, 54, 8, 10),
-    ("Ulleungdo", 508, 44, -72, -6),
-    ("Serang", 488, 88, -52, -6),
-]
+# (col, row) pins on the schematic map
+PINS = [(6, 2), (23, 4), (24, 3), (30, 1), (27, 5), (30, 5),
+        (32, 4), (35, 5), (43, 3), (39, 7)]
+PIN_LEGEND = ("PINS: IOWA, LISBON, GENEVA, MURMANSK, BENGHAZI, GAZA, "
+              "TEHRAN, DELHI, ULLEUNGDO, SERANG")
 
 DATE_CHECK = (
-    "DATE CHECK — Tuesday is only hours old in most time zones, so "
-    "verified all-Tuesday news is still thin. The leads are confirmed "
-    "Tuesday events; Monday items are marked MON — context only, never "
-    "presented as 24 Nov news."
+    "DATE CHECK - This page sums up Tuesday 24 November 2026. Stories "
+    "tagged TUE happened, or were first reported, today. Items tagged "
+    "MON, SUN or SAT are background from the days just before, included "
+    "only where today's story needs them - never passed off as today's "
+    "news."
 )
 
 
-# ---------------------------------------------------------------- draw
+# ---------------------------------------------------------------- drawing
+MARGIN = 30
+
+
+def masthead(dr):
+    centered(dr, W / 2, 26, "ONE PAGE - THE WHOLE DAY - EVERY CONTINENT",
+             fnt(SANS, 11), FAINT)
+    centered(dr, W / 2, 44, "THE DAILY ORBIT", fnt(SERIF_B, 62), INK)
+    dr.line([(MARGIN, 122), (W - MARGIN, 122)], fill=INK, width=3)
+    dr.line([(MARGIN, 127), (W - MARGIN, 127)], fill=INK, width=1)
+    # date band
+    dr.rectangle([MARGIN, 134, W - MARGIN, 168], fill=BAND_DARK)
+    centered(dr, W / 2, 140, "TUESDAY  -  24 NOVEMBER 2026",
+             fnt(SANS_B, 20), (250, 246, 235))
+    dr.text((W - MARGIN - text_w(dr, "VOL. II - NO. 24", fnt(SANS, 10)),
+             176), "VOL. II - NO. 24", font=fnt(SANS, 10), fill=FAINT)
+    dr.text((MARGIN, 176), "SOURCES: REUTERS - AP - KBS - CHESS.COM - TOI",
+            font=fnt(SANS, 10), fill=FAINT)
+
+
+def stats_strip(dr):
+    y0, y1 = 194, 252
+    dr.rectangle([MARGIN, y0, W - MARGIN, y1], outline=RULE, width=1)
+    colw = (W - 2 * MARGIN) / len(STATS)
+    for i, (num, label) in enumerate(STATS):
+        cx = MARGIN + colw * (i + 0.5)
+        centered(dr, cx, y0 + 8, num, fnt(SERIF_B, 25), RED if i % 2 == 0 else NAVY)
+        centered(dr, cx, y0 + 40, label, fnt(SANS_B, 8), FAINT)
+        if i:
+            x = MARGIN + colw * i
+            dr.line([(x, y0 + 8), (x, y1 - 8)], fill=(205, 196, 178), width=1)
+
+
+def hero(dr, x, y, w, h, item):
+    dr.rectangle([x, y, x + w, y + h], fill=CARD_BG, outline=RULE, width=1)
+    dr.rectangle([x, y, x + w, y + 26], fill=item["color"])
+    dr.text((x + 10, y + 7), item["place"], font=fnt(SANS_B, 10),
+            fill=(255, 255, 255))
+    tag = item["tag"]
+    tw = text_w(dr, tag, fnt(SANS_B, 10))
+    dr.text((x + w - 10 - tw, y + 7), tag, font=fnt(SANS_B, 10),
+            fill=(255, 255, 255))
+    yy = block(dr, x + 10, y + 36, item["head"], fnt(SERIF_B, 16), INK,
+               w - 20, 20)
+    dr.line([(x + 10, yy + 2), (x + 52, yy + 2)], fill=item["color"], width=2)
+    block(dr, x + 10, yy + 9, item["body"], fnt(SANS, 11), (52, 47, 38),
+          w - 20, 15)
+
+
+def heroes(dr):
+    y, h, gap = 264, 196, 12
+    w = (W - 2 * MARGIN - 2 * gap) / 3
+    for i, item in enumerate(HEROES):
+        hero(dr, MARGIN + i * (w + gap), y, w, h, item)
+
+
+def cards(dr):
+    y0, rows, gap = 482, 9, 5
+    cols = 3
+    cw = (W - 2 * MARGIN - (cols - 1) * gap) / cols
+    ch = 40
+    head_f, body_f, tag_f = fnt(SANS_B, 11), fnt(SANS, 9), fnt(SANS_B, 8)
+    for idx, (place, tag, head, body) in enumerate(CARDS):
+        r, c = divmod(idx, cols)
+        x = MARGIN + c * (cw + gap)
+        y = y0 + r * (ch + gap)
+        dr.rectangle([x, y, x + cw, y + ch], fill=CARD_BG,
+                     outline=(205, 196, 178), width=1)
+        tag_col = TAG_TUE if tag == "TUE" else TAG_CTX
+        dr.text((x + 7, y + 4), place + " ", font=tag_f, fill=tag_col)
+        px = x + 7 + text_w(dr, place + " ", tag_f)
+        dr.text((px, y + 4), "- " + head, font=head_f, fill=INK)
+        tw = text_w(dr, tag, tag_f)
+        dr.text((x + cw - 6 - tw, y + 4), tag, font=tag_f, fill=tag_col)
+        block(dr, x + 7, y + 18, body, body_f, (62, 56, 46), cw - 13, 11,
+              max_lines=2)
+
+
+def world_map(dr, x, y):
+    cell = 6
+    dot_f = (150, 138, 112)
+    for r, row in enumerate(MAP_ROWS):
+        for c, ch in enumerate(row):
+            if ch == "#":
+                cx, cy = x + c * cell, y + r * cell
+                dr.ellipse([cx + 1, cy + 1, cx + 4, cy + 4], fill=dot_f)
+    for c, r in PINS:
+        cx, cy = x + c * cell + 3, y + r * cell + 3
+        dr.ellipse([cx - 4, cy - 4, cx + 4, cy + 4], fill=RED,
+                   outline=(255, 252, 244), width=1)
+    ly = y + len(MAP_ROWS) * cell + 5
+    dr.text((x, ly), "WHERE TODAY HAPPENED - SCHEMATIC MAP, DRAWN IN PYTHON",
+            font=fnt(SANS_B, 9), fill=FAINT)
+    dr.text((x, ly + 13), PIN_LEGEND, font=fnt(SANS, 8), fill=FAINT)
+
+
+def bottom_band(dr):
+    y = 898
+    dr.line([(MARGIN, y - 8), (W - MARGIN, y - 8)], fill=INK, width=2)
+    world_map(dr, MARGIN + 4, y)
+    # date check box on the right
+    bx = 520
+    dr.rectangle([bx, y, W - MARGIN, y + 92], fill=(238, 230, 210),
+                 outline=RULE, width=1)
+    dr.text((bx + 12, y + 9), "HOW TO READ THE TAGS",
+            font=fnt(SANS_B, 11), fill=RED)
+    block(dr, bx + 12, y + 28, DATE_CHECK, fnt(SANS, 10), (52, 47, 38),
+          W - MARGIN - bx - 24, 13, max_lines=5)
+
+
 def main():
     img = Image.new("RGB", (W, H), PAPER)
-    d = ImageDraw.Draw(img)
-
-    # Frame
-    d.rectangle([14, 14, W - 15, H - 15], outline=INK, width=3)
-    d.rectangle([22, 22, W - 23, H - 23], outline=LINE, width=1)
-
-    # ---- Masthead
-    d.text((W // 2, 34), "THE DAILY ORBIT", font=font(SERIF, 56),
-           fill=INK, anchor="ma")
-    rule(d, 60, 108, W - 60, RED, 3)
-    d.text((W // 2, 118), "TUESDAY 24 NOVEMBER 2026   •   30 STORIES   •   ONE PAGE",
-           font=font(SANS_B, 15), fill=INK_SOFT, anchor="ma")
-
-    # ---- Hero row: three columns
-    hx, hy, hw, hh, gap = 40, 146, 304, 190, 16
-    for i, hero in enumerate(HEROES):
-        x = hx + i * (hw + gap)
-        d.rounded_rectangle([x, hy, x + hw, hy + hh], radius=6,
-                            fill=CARD, outline=LINE, width=1)
-        d.rectangle([x, hy, x + hw, hy + 6], fill=hero["color"])
-        y = hy + 18
-        d.text((x + 14, y), hero["kicker"], font=font(SANS_B, 12),
-               fill=hero["color"])
-        y += 22
-        y = para(d, (x + 14, y), hero["head"], font(SANS_B, 19), INK,
-                 hw - 28, 22)
-        y += 6
-        end_y = para(d, (x + 14, y), hero["body"], font(SANS, 12), INK_SOFT,
-                     hw - 28, 15)
-        if end_y > hy + hh - 6:
-            print("WARNING hero", i, "overflow:", end_y, "vs", hy + hh)
-
-    # ---- Stats strip
-    sy, sh = 348, 72
-    sw = (W - 80 - 5 * 10) / 6
-    for i, (num, label) in enumerate(STATS):
-        x = 40 + i * (sw + 10)
-        d.rounded_rectangle([x, sy, x + sw, sy + sh], radius=6,
-                            fill=INK, outline=INK)
-        d.text((x + sw / 2, sy + 8), num, font=font(SANS_B, 24),
-               fill=(255, 255, 255), anchor="ma")
-        for j, line in enumerate(label.split("\n")):
-            d.text((x + sw / 2, sy + 40 + j * 13), line,
-                   font=font(SANS, 10), fill=(214, 210, 198), anchor="ma")
-
-    # ---- Dot-matrix map
-    mx0, my0, mx1, my1 = 40, 450, 640, 570
-    d.text((mx0, 430), "WHERE IT HAPPENED — 9 PINS",
-           font=font(SANS_B, 12), fill=INK)
-    d.rounded_rectangle([mx0, my0, mx1, my1], radius=6,
-                        fill=CARD, outline=LINE, width=1)
-    ox, oy = mx0 + 8, my0 + 8
-    for gx in range(0, 584, 12):
-        for gy in range(0, 96, 12):
-            inside = any(((gx - cx) / rx) ** 2 + ((gy - cy) / ry) ** 2 <= 1
-                         for cx, cy, rx, ry in BLOBS)
-            if inside:
-                d.ellipse([ox + gx - 2, oy + gy - 2, ox + gx + 2, oy + gy + 2],
-                          fill=(150, 158, 172))
-    for name, px, py, ldx, ldy in PINS:
-        cx, cy = ox + px, oy + py
-        d.ellipse([cx - 6, cy - 6, cx + 6, cy + 6], fill=RED,
-                  outline=(255, 255, 255), width=2)
-        d.text((cx + ldx, cy + ldy), name, font=font(SANS_B, 10), fill=RED)
-
-    # ---- Date check box
-    bx0, by0, bx1, by1 = 664, 450, 984, 570
-    d.rounded_rectangle([bx0, by0, bx1, by1], radius=6,
-                        fill=(255, 244, 224), outline=GOLD, width=2)
-    d.text((bx0 + 14, by0 + 12), "DATE CHECK", font=font(SANS_B, 13),
-           fill=GOLD)
-    end_y = para(d, (bx0 + 14, by0 + 34), DATE_CHECK, font(SANS, 11),
-                 INK_SOFT, bx1 - bx0 - 28, 14)
-    if end_y > by1 - 6:
-        print("WARNING date-check overflow:", end_y, "vs", by1)
-
-    # ---- Cards grid: 3 columns x 9 rows
-    rule(d, 40, 582, W - 40, INK, 2)
-    d.text((40, 590), "THE REST OF THE DAY — 27 MORE STORIES",
-           font=font(SANS_B, 13), fill=INK)
-    d.text((W - 40, 590), "4–30", font=font(SANS_B, 13), fill=RED,
-           anchor="ra")
-    cw = 304
-    gy0 = 614
-    head_f = font(SANS_B, 11)
-    sub_f = font(SANS, 10)
-    tag_f = font(SANS_B, 9)
-    for i, (place, day, head, sub) in enumerate(CARDS):
-        col, row = i % 3, i // 3
-        x = 40 + col * (cw + 16)
-        y = gy0 + row * 40
-        d.text((x, y), f"{i + 4:>2}.", font=font(SANS_B, 11), fill=RED)
-        tx = x + 26
-        # Headline, wrapped to at most 2 lines inside the column.
-        lines = wrap(d, head, head_f, cw - 26)[:2]
-        for j, line in enumerate(lines):
-            d.text((tx, y + j * 13), line, font=head_f, fill=INK)
-        # Subline: place/day tag first, then the summary, truncated.
-        sy2 = y + len(lines) * 13 + 2
-        tag_txt = f"{place} · {day}  "
-        d.text((tx, sy2), tag_txt, font=tag_f, fill=RED)
-        tag_w = d.textlength(tag_txt, font=tag_f)
-        avail = cw - 26 - tag_w
-        shown = sub
-        while shown and d.textlength(shown + "…", font=sub_f) > avail:
-            shown = shown[:-1]
-        if shown != sub:
-            shown += "…"
-        d.text((tx + tag_w, sy2), shown, font=sub_f, fill=INK_SOFT)
-
-    # ---- Footer
-    rule(d, 40, 984, W - 40, LINE, 1)
-    d.text((40, 990), "THE DAILY ORBIT — drawn from verified wire reporting; "
-                        "weekend items are marked with their day.",
-           font=font(SANS, 10), fill=INK_SOFT)
-
-    out = os.path.join(HERE, "entry.png")
-    img.save(out, optimize=True)
-    print("saved", out, os.path.getsize(out), "bytes")
+    dr = ImageDraw.Draw(img)
+    dr.rectangle([8, 8, W - 8, H - 8], outline=INK, width=2)
+    dr.rectangle([14, 14, W - 14, H - 14], outline=(150, 138, 112), width=1)
+    masthead(dr)
+    stats_strip(dr)
+    heroes(dr)
+    centered(dr, W / 2, 464, "- THE REST OF THE DAY -", fnt(SANS_B, 11),
+             FAINT)
+    cards(dr)
+    bottom_band(dr)
+    out = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                       "entry.png")
+    img.save(out, format="PNG", optimize=True)
+    print("wrote", out, os.path.getsize(out), "bytes")
 
 
 if __name__ == "__main__":
